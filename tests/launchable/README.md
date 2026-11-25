@@ -14,11 +14,13 @@ line tools installed, run:
 
 The reproducibility check builds twice in fresh directories and compares all
 four executable hashes and header listings before publishing outputs. The build
-also rejects identical outputs from different variants.
+also rejects identical outputs from different variants. All compiles use
+the same captured source bytes, which are hashed in the build receipt.
 
 The recipe defaults to Xcode clang and the active Rust toolchain's
 `rust-lld`. It records concrete versions, ARM64 tool evidence, compiler
-and linker options, source and output hashes, and PE section and directory
+and linker options, the definitions for each variant, source and output
+hashes, and PE section and directory
 facts. It also saves LLVM PE header listings, checks the exact DLL and
 symbol imports for each variant, and requires an empty base relocation
 directory for this source. The baseline build used Apple clang 21.0.0 (clang-2100.1.1.101)

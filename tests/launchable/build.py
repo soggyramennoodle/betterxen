@@ -72,8 +72,9 @@ def verify_imports(headers, variant):
 
 
 
-def build_variants(stage, clang, link, objdump, compile_flags, link_flags):
+def build_variants(stage, source, clang, link, objdump, compile_flags, link_flags):
     stage.mkdir()
+    (stage / "program.c").write_bytes(source)
     variants = {}
     (stage / "kernel32.def").write_text(
         "LIBRARY kernel32.dll\nEXPORTS\n    ExitProcess\n    LaunchMissingFixtureImport\n",
@@ -86,7 +87,7 @@ def build_variants(stage, clang, link, objdump, compile_flags, link_flags):
     for name, define in VARIANTS.items():
         extra = [f"-D{define}"] if define else []
         subprocess.run(
-            [clang, *compile_flags, *extra, "-c", SOURCE, "-o", f"{name}.obj"],
+            [clang, *compile_flags, *extra, "-c", "program.c", "-o", f"{name}.obj"],
             cwd=stage, check=True,
         )
         subprocess.run(
@@ -101,6 +102,7 @@ def build_variants(stage, clang, link, objdump, compile_flags, link_flags):
             [objdump, "-p", binary.name], cwd=stage, text=True,
         )
         facts["imports"] = verify_imports(headers, name)
+        facts["compile_defines"] = extra
         variants[name] = facts
         (stage / f"{name}.headers.txt").write_text(headers, encoding="utf-8")
     if len({facts["sha256"] for facts in variants.values()}) != len(variants):
@@ -146,16 +148,20 @@ def main():
         "-fno-stack-protector", "-Wall", "-Wextra", "-Werror",
     ]
     link_flags = ["/entry:launch_entry", "/subsystem:console", "/nodefaultlib", "/timestamp:0"]
+    source = SOURCE.read_bytes()
     receipt = {
-        "source_sha256": sha256(SOURCE), "tools": tools, "compile_flags": compile_flags,
-        "link_flags": link_flags, "variants": {},
+        "schema_version": 1,
+        "source_sha256": hashlib.sha256(source).hexdigest(),
+        "tools": tools,
+        "compile_flags": compile_flags,
+        "link_flags": link_flags,
     }
     with tempfile.TemporaryDirectory(dir=output) as scratch:
         first = Path(scratch) / "first"
-        receipt["variants"] = build_variants(first, clang, link, objdump, compile_flags, link_flags)
+        receipt["variants"] = build_variants(first, source, clang, link, objdump, compile_flags, link_flags)
         if options.verify_reproducible:
             second = Path(scratch) / "second"
-            variants = build_variants(second, clang, link, objdump, compile_flags, link_flags)
+            variants = build_variants(second, source, clang, link, objdump, compile_flags, link_flags)
             if receipt["variants"] != variants:
                 changed = [name for name in VARIANTS if receipt["variants"][name] != variants[name]]
                 raise ValueError(f"non-reproducible PE artifacts: {', '.join(changed)}")
@@ -166,8 +172,9 @@ def main():
         receipt["reproducibility_verified"] = options.verify_reproducible
         (first / "build.json").write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         for artifact in first.iterdir():
-            if artifact.suffix in (".exe", ".txt", ".json"):
+            if artifact.suffix in (".exe", ".txt"):
                 artifact.replace(output / artifact.name)
+        (first / "build.json").replace(output / "build.json")
     print(f"Built {len(VARIANTS)} source fixtures in {output}")
 
 
